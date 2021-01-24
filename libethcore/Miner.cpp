@@ -21,7 +21,6 @@ namespace dev
 {
 namespace eth
 {
-
 unsigned Miner::s_dagLoadMode = 0;
 unsigned Miner::s_dagLoadIndex = 0;
 unsigned Miner::s_minersCount = 0;
@@ -36,7 +35,6 @@ DeviceDescriptor Miner::getDescriptor()
 void Miner::setWork(WorkPackage const& _work)
 {
     {
-
         boost::mutex::scoped_lock l(x_work);
 
         // Void work if this miner is paused
@@ -53,7 +51,7 @@ void Miner::setWork(WorkPackage const& _work)
     kick_miner();
 }
 
-void Miner::pause(MinerPauseEnum what) 
+void Miner::pause(MinerPauseEnum what)
 {
     boost::mutex::scoped_lock l(x_pause);
     m_pauseFlags.set(what);
@@ -96,18 +94,17 @@ std::string Miner::pausedString()
                     retVar.append("Insufficient GPU memory");
                 else if (i == MinerPauseEnum::PauseDueToInitEpochError)
                     retVar.append("Epoch initialization error");
-
             }
         }
     }
     return retVar;
 }
 
-void Miner::resume(MinerPauseEnum fromwhat) 
+void Miner::resume(MinerPauseEnum fromwhat)
 {
     boost::mutex::scoped_lock l(x_pause);
     m_pauseFlags.reset(fromwhat);
-    //if (!m_pauseFlags.any())
+    // if (!m_pauseFlags.any())
     //{
     //    // TODO Push most recent job from farm ?
     //    // If we do not push a new job the miner will stay idle
@@ -117,7 +114,41 @@ void Miner::resume(MinerPauseEnum fromwhat)
 
 float Miner::RetrieveHashRate() noexcept
 {
-    return m_hashRate.load(std::memory_order_relaxed);
+    static int errorCount = 0;
+    static float MIN_HASH_RATE = 20.0f;
+    static int MAX_ERROR_COUNT = 20;
+    static bool firstTime=true;
+
+    if(firstTime){
+        char *min_string, *max_count;
+        min_string = getenv("MINER_MIN_HASH");
+        if(min_string)
+        {
+            MIN_HASH_RATE = atof(min_string);
+            printf("MINER_MIN_HASH=%.2f\n",MIN_HASH_RATE);
+        }
+        max_count = getenv("MINER_MAX_ERROR");
+        if(max_count){
+            MAX_ERROR_COUNT = atoi(max_count);
+            printf("MINER_MAX_ERROR=%d\n",MAX_ERROR_COUNT);
+        }
+        firstTime = false;
+    }
+
+
+    float currHash = m_hashRate.load(std::memory_order_relaxed);
+    if ((currHash/(1e-12+1e6)) < MIN_HASH_RATE)
+    {
+        printf("current hash rate %.2f is lower than min hash rate %.2f. Error count: %d Max Count: %d\n", currHash, MIN_HASH_RATE, errorCount, MAX_ERROR_COUNT);
+        errorCount++;
+    }
+    else
+    {
+        errorCount = 0;
+    }
+    if (errorCount > MAX_ERROR_COUNT)
+        exit(EXIT_FAILURE);
+    return currHash;
 }
 
 void Miner::TriggerHashRateUpdate() noexcept
@@ -152,7 +183,7 @@ bool Miner::initEpoch()
     // specific for miner
     bool result = initEpoch_internal();
 
-    // Advance to next miner or reset to zero for 
+    // Advance to next miner or reset to zero for
     // next run if all have processed
     if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
     {
@@ -174,6 +205,8 @@ WorkPackage Miner::work() const
 
 void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
 {
+
+
     m_groupCount += _increment;
     bool b = true;
     if (!m_hashRateUpdate.compare_exchange_strong(b, false))
@@ -190,4 +223,6 @@ void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
 
 
 }  // namespace eth
+
+
 }  // namespace dev
